@@ -12,6 +12,7 @@ module Rack
         @idempotent_exceptions = idempotent_exceptions
       end
     end
+
     class HTTPException < Exception
       attr_reader :status, :headers, :body
       def initialize(status, headers, body)
