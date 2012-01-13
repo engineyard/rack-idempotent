@@ -5,6 +5,12 @@ module Rack
     RETRY_LIMIT = 5
 
     class RetryLimitExceeded < Exception; end
+    class HTTPException < Exception
+      attr_reader :status
+      def initialize(status)
+        @status = status
+      end
+    end
 
     def initialize(app)
       @app= app
@@ -12,9 +18,14 @@ module Rack
 
     def call(env)
       env['client.retries'] = 0
+      status, headers, body = nil
       begin
-        @app.call(env)
-      rescue Errno::ETIMEDOUT
+        dup_env = env.dup
+        status, headers, body = @app.call(dup_env)
+        raise HTTPException.new(status) if status == 502
+        env.merge!(dup_env)
+        [status, headers, body]
+      rescue Errno::ETIMEDOUT, HTTPException
         if env['client.retries'] > RETRY_LIMIT - 1
           raise(RetryLimitExceeded)
         else
