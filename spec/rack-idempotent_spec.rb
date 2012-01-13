@@ -46,10 +46,29 @@ describe Rack::Idempotent do
     env['client.retries'].should == Rack::Idempotent::RETRY_LIMIT
   end
 
-  it "retries 502" do
-    RaiseUp.errors = [502]
-    client.get("/something")
-    env = CaptureEnv.env
-    env['client.retries'].should == 1
+  [502, 503, 504, 408].each do |code|
+    it "retries #{code}" do
+      RaiseUp.errors = [code]
+      client.get("/something")
+      env = CaptureEnv.env
+      env['client.retries'].should == 1
+    end
   end
+
+  it "should store exceptions raised" do
+    RaiseUp.errors = [502, Errno::ECONNREFUSED, 408, 504, Errno::EHOSTUNREACH, Errno::ETIMEDOUT]
+    errors = RaiseUp.errors.dup
+    exception = nil
+
+    begin
+      client.get("/doesntmatter")
+    rescue Rack::Idempotent::RetryLimitExceeded => e
+      exception = e
+    end
+
+    exception.should_not be_nil
+    exception.idempotent_exceptions.size.should == 6
+    exception.idempotent_exceptions.map{|ie| ie.is_a?(Rack::Idempotent::HTTPException) ? ie.status : ie.class}.should == errors
+  end
+
 end
