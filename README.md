@@ -7,19 +7,21 @@ Rack::Idempotent rescues and retries low-level errors and 'safe to retry' http r
 Default retry limit is currently set to 5.
 
 Handled low-level Net::HTTP exceptions include:
-* Errno::ETIMEDOUT
-* Errno::ECONNREFUSED
-* Errno::EHOSTUNREACH
+
+* `Errno::ETIMEDOUT`
+* `Errno::ECONNREFUSED`
+* `Errno::EHOSTUNREACH`
 
 Response status codes that are retried:
+
 * 408: Request Timeout
 * 502: Bad Gateway
 * 503: Service Unavailable
 * 504: Gateway Timeout
 
-If the retry limit is exceeded, Rack::Idemptotent will raise Rack::Idempotent::RetryLimitExceeded.
+If the retry limit is exceeded, Rack::Idemptotent will raise `Rack::Idempotent::RetryLimitExceeded`.
 
-The exceptions raised are stored as an array available via Rack::Idempotent::RetryLimitExceeded#idempotent\_exceptions
+The exceptions raised are stored as an array available via `Rack::Idempotent::RetryLimitExceeded#idempotent_exceptions`
 
 ## Installation
 
@@ -39,15 +41,15 @@ Or install it yourself as:
 
 Add Rack::Idempotent as a Rack::Client middleware as close to the handler as possible:
 
-  client = Rack::Client.new do
-    use EY::ApiHMAC::ApiAuth::Client, *ServiceClient.hmac_keys
-    use Rack::Idempotent
-    run Rack::Client::Handler::NetHTTP
-  end
+    client = Rack::Client.new do
+      use EY::ApiHMAC::ApiAuth::Client, *ServiceClient.hmac_keys
+      use Rack::Idempotent
+      run Rack::Client::Handler::NetHTTP
+    end
 
 ## Running Tests
 
-  $ bundle exec rake
+    $ bundle exec rake
 
 ## Contributing
 
