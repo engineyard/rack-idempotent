@@ -41,11 +41,13 @@ Or install it yourself as:
 
 Add Rack::Idempotent as a Rack::Client middleware as close to the handler as possible:
 
-    client = Rack::Client.new do
-      use EY::ApiHMAC::ApiAuth::Client, *ServiceClient.hmac_keys
-      use Rack::Idempotent
-      run Rack::Client::Handler::NetHTTP
-    end
+```ruby
+client = Rack::Client.new do
+  use EY::ApiHMAC::ApiAuth::Client, *ServiceClient.hmac_keys
+  use Rack::Idempotent
+  run Rack::Client::Handler::NetHTTP
+end
+```
 
 ## Running Tests
 
