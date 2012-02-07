@@ -3,7 +3,8 @@ require "rack-idempotent/version"
 module Rack
   class Idempotent
     RETRY_LIMIT = 5
-    IDEMPOTENT_HTTP_CODES = [502, 503, 504, 408]
+    RETRY_HTTP_CODES = [502, 503, 504]
+    IDEMPOTENT_HTTP_CODES = [*RETRY_HTTP_CODES, 408]
     IDEMPOTENT_ERROR_CLASSES = [Errno::ETIMEDOUT, Errno::ECONNREFUSED, Errno::EHOSTUNREACH]
 
     class RetryLimitExceeded < Exception
@@ -24,6 +25,9 @@ module Rack
       end
     end
 
+    class Retryable < StandardError
+    end
+
     def initialize(app)
       @app= app
     end
@@ -38,15 +42,26 @@ module Rack
         raise HTTPException.new(status, headers, body) if IDEMPOTENT_HTTP_CODES.include?(status)
         env.merge!(dup_env)
         [status, headers, body]
-      rescue *IDEMPOTENT_ERROR_CLASSES, HTTPException => ie
+      rescue *IDEMPOTENT_ERROR_CLASSES, HTTPException, Retryable => ie
         idempotent_exceptions << ie
         if env['client.retries'] > RETRY_LIMIT - 1
           raise(RetryLimitExceeded.new(idempotent_exceptions))
         else
-          env['client.retries'] += 1
-          retry
+          if retry?(status, env["REQUEST_METHOD"])
+            env['client.retries'] += 1
+            retry
+          else
+            raise
+          end
         end
       end
     end
+
+  private
+
+  def retry?(response_status, request_method)
+    RETRY_HTTP_CODES.include?(response_status) || request_method == "GET"
+  end
+
   end
 end

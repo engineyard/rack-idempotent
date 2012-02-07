@@ -37,6 +37,14 @@ describe Rack::Idempotent do
     env['client.retries'].should == 2
   end
 
+  it "should retry Rack::Idempotent::Retryable" do
+    RaiseUp.errors = [Rack::Idempotent::Retryable, Rack::Idempotent::Retryable]
+    client.get("/alsodoesntmatter")
+
+    env = CaptureEnv.env
+    env['client.retries'].should == 2
+  end
+
   it "should raise Rack::Idempotent::RetryLimitExceeded when retry limit is reached" do
     RaiseUp.errors = (Rack::Idempotent::RETRY_LIMIT + 1).times.map{|i| Errno::ETIMEDOUT}
 
@@ -47,12 +55,30 @@ describe Rack::Idempotent do
   end
 
   [502, 503, 504, 408].each do |code|
-    it "retries #{code}" do
+    it "retries GET #{code}" do
       RaiseUp.errors = [code]
       client.get("/something")
       env = CaptureEnv.env
       env['client.retries'].should == 1
     end
+  end
+
+  [502, 503, 504].each do |code|
+    it "retries POST #{code}" do
+      RaiseUp.errors = [code]
+      client.post("/something")
+      env = CaptureEnv.env
+      env['client.retries'].should == 1
+    end
+  end
+
+  it "doesn't retry POST when return code is 408" do
+    RaiseUp.errors = [408]
+    lambda do
+      client.post("/something")
+    end.should raise_error(Rack::Idempotent::HTTPException)
+    env = CaptureEnv.env
+    env['client.retries'].should == 0
   end
 
   it "should store exceptions raised" do
