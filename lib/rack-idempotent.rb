@@ -7,14 +7,14 @@ module Rack
     IDEMPOTENT_HTTP_CODES = RETRY_HTTP_CODES + [408]
     IDEMPOTENT_ERROR_CLASSES = [Errno::ETIMEDOUT, Errno::ECONNREFUSED, Errno::EHOSTUNREACH]
 
-    class RetryLimitExceeded < Exception
+    class RetryLimitExceeded < StandardError
       attr_reader :idempotent_exceptions
       def initialize(idempotent_exceptions)
         @idempotent_exceptions = idempotent_exceptions
       end
     end
 
-    class HTTPException < Exception
+    class HTTPException < StandardError
       attr_reader :status, :headers, :body
       def initialize(status, headers, body)
         @status, @headers, @body = status, headers, body

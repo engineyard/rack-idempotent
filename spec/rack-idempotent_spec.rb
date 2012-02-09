@@ -81,6 +81,16 @@ describe Rack::Idempotent do
     env['client.retries'].should == 0
   end
 
+  it "should be able to rescue http exception via standard error" do
+    RaiseUp.errors = [408]
+
+    begin
+      client.post("/something")
+    rescue => e
+      # works
+    end
+  end
+
   it "should store exceptions raised" do
     RaiseUp.errors = [502, Errno::ECONNREFUSED, 408, 504, Errno::EHOSTUNREACH, Errno::ETIMEDOUT]
     errors = RaiseUp.errors.dup
@@ -95,6 +105,16 @@ describe Rack::Idempotent do
     exception.should_not be_nil
     exception.idempotent_exceptions.size.should == 6
     exception.idempotent_exceptions.map{|ie| ie.is_a?(Rack::Idempotent::HTTPException) ? ie.status : ie.class}.should == errors
+  end
+
+  it "should be able to rescue retry limit exceeded via standard error" do
+    RaiseUp.errors = (0...Rack::Idempotent::RETRY_LIMIT.succ).map{|_| 503 }
+
+    begin
+      res = client.get("/doesntmatter")
+    rescue => e
+      # works
+    end
   end
 
 end
