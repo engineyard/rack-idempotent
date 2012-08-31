@@ -1,120 +1,217 @@
 require 'spec_helper'
 
 describe Rack::Idempotent do
-  class CaptureEnv
-    class << self; attr_accessor :env; end
-    def initialize(app); @app=app; end
-    def call(env)
-      @app.call(env)
-    ensure
-      self.class.env = env
-    end
+  before(:each) do
+    TestCall.errors = []
+    RecordRequests.reset
   end
-  class RaiseUp
-    class << self; attr_accessor :errors; end
-    def self.call(env)
-      error = self.errors.shift
-      raise error if error.is_a?(Class)
-      status_code = error || 200
-      [status_code, {}, []]
-    end
-  end
-
-  before(:each){ CaptureEnv.env = nil }
   let(:client) do
     Rack::Client.new do
-      use CaptureEnv
+      use Rack::Lint
       use Rack::Idempotent
-      run RaiseUp
+      use Rack::Lint
+      use RecordRequests
+      run TestCall
     end
   end
 
-  it "should retry Errno::ETIMEDOUT" do
-    RaiseUp.errors = [Errno::ETIMEDOUT, Errno::ETIMEDOUT]
-    client.get("/doesntmatter")
-
-    env = CaptureEnv.env
-    env['client.retries'].should == 2
-  end
-
-  it "should retry Rack::Idempotent::Retryable" do
-    RaiseUp.errors = [Rack::Idempotent::Retryable, Rack::Idempotent::Retryable]
-    client.get("/alsodoesntmatter")
-
-    env = CaptureEnv.env
-    env['client.retries'].should == 2
-  end
-
-  it "should raise Rack::Idempotent::RetryLimitExceeded when retry limit is reached" do
-    RaiseUp.errors = (Rack::Idempotent::RETRY_LIMIT + 1).times.map{|i| Errno::ETIMEDOUT}
-
-    lambda { client.get("/doesntmatter") }.should raise_exception(Rack::Idempotent::RetryLimitExceeded)
-
-    env = CaptureEnv.env
-    env['client.retries'].should == Rack::Idempotent::RETRY_LIMIT
-  end
-
-  [502, 503, 504, 408].each do |code|
-    it "retries GET #{code}" do
-      RaiseUp.errors = [code]
-      client.get("/something")
-      env = CaptureEnv.env
-      env['client.retries'].should == 1
-    end
-  end
-
-  [502, 503, 504].each do |code|
-    it "retries POST #{code}" do
-      RaiseUp.errors = [code]
-      client.post("/something")
-      env = CaptureEnv.env
-      env['client.retries'].should == 1
-    end
-  end
-
-  it "doesn't retry POST when return code is 408" do
-    RaiseUp.errors = [408]
-    lambda do
-      client.post("/something")
-    end.should raise_error(Rack::Idempotent::HTTPException)
-    env = CaptureEnv.env
-    env['client.retries'].should == 0
-  end
-
-  it "should be able to rescue http exception via standard error" do
-    RaiseUp.errors = [408]
-
-    begin
-      client.post("/something")
-    rescue => e
-      # works
-    end
-  end
-
-  it "should store exceptions raised" do
-    RaiseUp.errors = [502, Errno::ECONNREFUSED, 408, 504, Errno::EHOSTUNREACH, Errno::ETIMEDOUT]
-    errors = RaiseUp.errors.dup
-    exception = nil
-
-    begin
-      client.get("/doesntmatter")
-    rescue Rack::Idempotent::RetryLimitExceeded => e
-      exception = e
+  describe "with defaults" do
+    it "should not retry if succesful response" do
+      client.get("http://example.org/")
+      RecordRequests.requests.count.should == 1
     end
 
-    exception.should_not be_nil
-    exception.idempotent_exceptions.size.should == 6
-    exception.idempotent_exceptions.map{|ie| ie.is_a?(Rack::Idempotent::HTTPException) ? ie.status : ie.class}.should == errors
-  end
+    it "should retry if it gets one unsuccesful response" do
+      TestCall.errors = [503]
+      client.get("http://example.org/")
 
-  it "should be able to rescue retry limit exceeded via standard error" do
-    RaiseUp.errors = (0...Rack::Idempotent::RETRY_LIMIT.succ).map{|_| 503 }
+      RecordRequests.requests.count.should == 2
 
-    begin
-      res = client.get("/doesntmatter")
-    rescue => e
-      # works
+      RecordRequests.responses.count.should == 2
+      RecordRequests.responses[0][0].should == 503
+      RecordRequests.responses[1][0].should == 200
+    end
+
+    it "should retry if it gets more than one unsuccesful response" do
+      TestCall.errors = [503, 504]
+      client.get("http://example.org/")
+
+      RecordRequests.requests.count.should == 3
+
+      RecordRequests.responses.count.should == 3
+      RecordRequests.responses[0][0].should == 503
+      RecordRequests.responses[1][0].should == 504
+      RecordRequests.responses[2][0].should == 200
+    end
+
+    it "should raise RetryLimitExceeded when the request fails too many times" do
+      retry_limit = Rack::Idempotent::DEFAULT_RETRY_LIMIT
+      TestCall.errors = (retry_limit + 1).times.map {|i| 503}
+      lambda {
+        client.get("http://example.org/")
+      }.should raise_exception Rack::Idempotent::RetryLimitExceeded
+      RecordRequests.requests.count.should == retry_limit
+      RecordRequests.responses.count.should == retry_limit
+    end
+
+    it "should retry if the connection times out once" do
+      TestCall.errors = [Errno::ETIMEDOUT]
+      client.get("http://example.org/")
+
+      RecordRequests.requests.count.should == 2
+      exceptions = RecordRequests.requests.last["idempotent.requests.exceptions"]
+      exceptions.count.should == 1
+      exceptions.first.class.should == Errno::ETIMEDOUT
+
+      RecordRequests.responses.count.should == 2
+      RecordRequests.responses.last[0].should == 200
+    end
+
+    it "should retry if the connection times out more than once" do
+      TestCall.errors = [Errno::ETIMEDOUT, Errno::ETIMEDOUT]
+      client.get("http://example.org/")
+
+      RecordRequests.requests.count.should == 3
+      exceptions = RecordRequests.requests.last["idempotent.requests.exceptions"]
+      exceptions.count.should == 2
+      exceptions.first.class.should == Errno::ETIMEDOUT
+
+      RecordRequests.responses.count.should == 3
+      RecordRequests.responses.last[0].should == 200
+    end
+
+    it "should raise RetryLimitExceeded when the connection times out too many times" do
+      retry_limit = Rack::Idempotent::DEFAULT_RETRY_LIMIT
+      TestCall.errors = (retry_limit + 1).times.map {|i| Errno::ETIMEDOUT}
+      lambda {
+        client.get("http://example.org/")
+      }.should raise_exception Rack::Idempotent::RetryLimitExceeded
+      RecordRequests.requests.count.should == retry_limit
+      RecordRequests.responses.count.should == retry_limit
+    end
+
+    describe "does what the README says it does and" do
+      it 'has a retry limit of 5' do
+        Rack::Idempotent::DEFAULT_RETRY_LIMIT.should == 5
+      end
+
+      [Errno::ETIMEDOUT, Errno::ECONNREFUSED, Errno::EHOSTUNREACH].each do |e|
+        it "retries on #{e}" do
+          TestCall.errors = [e]
+          client.get("http://example.org/")
+
+          RecordRequests.requests.count.should == 2
+          exceptions = RecordRequests.requests.last["idempotent.requests.exceptions"]
+          exceptions.count.should == 1
+          exceptions.first.class.should == e
+
+          RecordRequests.responses.count.should == 2
+          RecordRequests.responses.last[0].should == 200
+        end
+      end
+
+      [408, 502, 503, 504].each do |status|
+        it "retries on #{status}" do
+          TestCall.errors = [status]
+          client.get("http://example.org/")
+
+          RecordRequests.requests.count.should == 2
+
+          RecordRequests.responses.count.should == 2
+          RecordRequests.responses[0][0].should == status
+          RecordRequests.responses[1][0].should == 200
+        end
+      end
+
+      it 'raises RetryLimitExceeded if the retry limit is exceeded' do
+        retry_limit = Rack::Idempotent::DEFAULT_RETRY_LIMIT
+        TestCall.errors = (retry_limit + 1).times.map {|i| 408}
+        lambda {
+          client.get("http://example.org/")
+        }.should raise_exception Rack::Idempotent::RetryLimitExceeded
+        RecordRequests.requests.count.should == retry_limit
+        RecordRequests.responses.count.should == retry_limit
+      end
+
+      it 'stores any exceptions raised in RetryLimitExceeded.idempotent_exceptions' do
+        retry_limit = Rack::Idempotent::DEFAULT_RETRY_LIMIT
+        TestCall.errors = (retry_limit + 1).times.map {|i| Errno::ETIMEDOUT}
+        lambda {
+          begin
+            client.get("http://example.org/")
+          rescue Rack::Idempotent::RetryLimitExceeded => e
+            e.idempotent_exceptions.should_not be_nil
+            exceptions = e.idempotent_exceptions
+            exceptions.count.should == retry_limit
+            exceptions.each do |ex|
+              ex.class.should == Errno::ETIMEDOUT
+            end
+            raise
+          end
+        }.should raise_exception Rack::Idempotent::RetryLimitExceeded
+
+        RecordRequests.requests.count.should == retry_limit
+        RecordRequests.responses.count.should == retry_limit
+      end
+    end
+
+    describe "does what v0.0.3 does and" do
+      [502, 503, 504].each do |status|
+        it "retries POST requests if the status is #{status}" do
+          TestCall.errors = [status]
+          client.post("http://example.org/")
+
+          RecordRequests.requests.count.should == 2
+
+          RecordRequests.responses.count.should == 2
+          RecordRequests.responses[0][0].should == status
+          RecordRequests.responses[1][0].should == 200
+        end
+      end
+
+      it 'does not retry a POST if the status is 408' do
+        TestCall.errors = [408]
+        lambda {
+          client.post("http://example.org/")
+        }.should raise_exception Rack::Idempotent::HTTPException
+
+        RecordRequests.requests.count.should == 1
+
+        RecordRequests.responses.count.should == 1
+        RecordRequests.responses[0][0].should == 408
+      end
+
+      it 'retries if a Rack::Idempotent::Retryable exception is thrown' do
+        TestCall.errors = [Rack::Idempotent::Retryable]
+        client.get("http://example.org/")
+
+        RecordRequests.requests.count.should == 2
+        exceptions = RecordRequests.requests.last["idempotent.requests.exceptions"]
+        exceptions.count.should == 1
+        exceptions.first.class.should == Rack::Idempotent::Retryable
+
+        RecordRequests.responses.count.should == 2
+        RecordRequests.responses.last[0].should == 200
+      end
+
+      it 'is able to rescue http exception via standard error' do
+        TestCall.errors = [400]
+        begin
+          client.post("http://example.org/")
+        rescue => e
+          e.class.should == Rack::Idempotent::HTTPException
+        end
+      end
+
+      it 'is able to rescue retry limit exceeded via standard error' do
+        retry_limit = Rack::Idempotent::DEFAULT_RETRY_LIMIT
+        TestCall.errors = (retry_limit + 1).times.map {|i| Errno::ETIMEDOUT}
+        begin
+          client.post("http://example.org/")
+        rescue => e
+          e.class.should == Rack::Idempotent::RetryLimitExceeded
+        end
+      end
     end
   end
-
 end

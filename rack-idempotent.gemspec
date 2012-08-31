@@ -2,10 +2,10 @@
 require File.expand_path('../lib/rack-idempotent/version', __FILE__)
 
 Gem::Specification.new do |gem|
-  gem.authors       = ["Ines Sombra"]
-  gem.email         = ["isombra@engineyard.com"]
-  gem.description   = %q{Retry logic for rack-client}
-  gem.summary       = %q{Retry logic for rack-client}
+  gem.authors       = ["Engine Yard"]
+  gem.email         = ["engineering@engineyard.com"]
+  gem.description   = %q{Idempotent Rack middleware}
+  gem.summary       = %q{Retry middleware for Rack clients}
   gem.homepage      = ""
 
   gem.executables   = `git ls-files -- bin/*`.split("\n").map{ |f| File.basename(f) }

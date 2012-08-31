@@ -1,67 +1,54 @@
 require "rack-idempotent/version"
 
-module Rack
-  class Idempotent
-    RETRY_LIMIT = 5
-    RETRY_HTTP_CODES = [502, 503, 504]
-    IDEMPOTENT_HTTP_CODES = RETRY_HTTP_CODES + [408]
-    IDEMPOTENT_ERROR_CLASSES = [Errno::ETIMEDOUT, Errno::ECONNREFUSED, Errno::EHOSTUNREACH]
+class Rack::Idempotent
+  DEFAULT_RETRY_LIMIT = 5
 
-    class RetryLimitExceeded < StandardError
-      attr_reader :idempotent_exceptions
-      def initialize(idempotent_exceptions)
-        @idempotent_exceptions = idempotent_exceptions
-      end
-    end
+  # Retry policies
+  autoload :ImmediateRetry, 'rack-idempotent/immediate_retry'
+  autoload :ExponentialBackoff, 'rack-idempotent/exponential_backoff'
 
-    class HTTPException < StandardError
-      attr_reader :status, :headers, :body
-      def initialize(status, headers, body)
-        @status, @headers, @body = status, headers, body
-      end
+  # Rescue policies
+  autoload :DefaultRescue, 'rack-idempotent/default_rescue'
 
-      def to_s
-        @status.to_s
-      end
-    end
+  # Exceptions
+  autoload :HTTPException, 'rack-idempotent/http_exception'
+  autoload :RetryLimitExceeded, 'rack-idempotent/retry_limit_exceeded'
+  autoload :Retryable, 'rack-idempotent/retryable'
 
-    class Retryable < StandardError
-    end
+  attr_reader :retry_policy, :rescue_policy
 
-    def initialize(app)
-      @app= app
-    end
-
-    def call(env)
-      env['client.retries'] = 0
-      status, headers, body = nil
-      idempotent_exceptions = []
-      begin
-        dup_env = env.dup
-        status, headers, body = @app.call(dup_env)
-        raise HTTPException.new(status, headers, body) if IDEMPOTENT_HTTP_CODES.include?(status)
-        env.merge!(dup_env)
-        [status, headers, body]
-      rescue *(IDEMPOTENT_ERROR_CLASSES + [HTTPException, Retryable]) => ie
-        idempotent_exceptions << ie
-        if env['client.retries'] > RETRY_LIMIT - 1
-          raise(RetryLimitExceeded.new(idempotent_exceptions))
-        else
-          if retry?(status, env["REQUEST_METHOD"])
-            env['client.retries'] += 1
-            retry
-          else
-            raise
-          end
-        end
-      end
-    end
-
-  private
-
-  def retry?(response_status, request_method)
-    RETRY_HTTP_CODES.include?(response_status) || request_method == "GET"
+  def initialize(app, options={})
+    @app           = app
+    @retry_policy  = options[:retry] || Rack::Idempotent::ImmediateRetry.new
+    @rescue_policy = options[:rescue] || Rack::Idempotent::DefaultRescue.new
   end
 
+  def call(env)
+    request = Rack::Request.new(env)
+    response = nil
+    exception = nil
+    while true
+      retry_policy.call(request, response, exception) if response || exception
+      response, exception = nil
+
+      begin
+        status, headers, body = @app.call(env.dup)
+        raise HTTPException.new(status, headers, body, request) if status >= 400
+        response = Rack::Response.new(body, status, headers)
+        next if rescue_policy.call({:response => response, :request => request})
+        return [status, headers, body]
+      rescue Rack::Idempotent::Retryable => exception
+        request.env["idempotent.requests.exceptions"] ||= []
+        request.env["idempotent.requests.exceptions"] << exception
+        next
+      rescue => exception
+        if rescue_policy.call({:exception => exception, :request => request})
+          request.env["idempotent.requests.exceptions"] ||= []
+          request.env["idempotent.requests.exceptions"] << exception
+          next
+        end
+        raise
+      end
+    end
   end
 end
