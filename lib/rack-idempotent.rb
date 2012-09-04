@@ -21,7 +21,7 @@ class Rack::Idempotent
     exception = nil
     catch :retry do
       begin
-        retry_policy.call(request, response || exception) if response || exception
+        retry_policy.call(request, response, exception) if response || exception
         response, exception = nil
         status, headers, body = @app.call(env.dup)
 
