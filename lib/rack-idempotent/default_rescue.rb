@@ -3,10 +3,12 @@ class Rack::Idempotent::DefaultRescue
   IDEMPOTENT_ERROR_CLASSES = [Errno::ETIMEDOUT, Errno::ECONNREFUSED, Errno::EHOSTUNREACH]
 
   def self.call(options={})
-    if response = options[:response]
-    elsif exception = options[:exception]
-    else raise "wtf"
+    if options[:exception]
+      IDEMPOTENT_ERROR_CLASSES.include?(options[:exception].class)
+    elsif options[:response]
+      RETRY_HTTP_CODES.include?(options[:response].status)
+    else
+      false
     end
-
   end
 end

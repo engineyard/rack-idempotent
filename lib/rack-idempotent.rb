@@ -1,6 +1,7 @@
 require "rack-idempotent/version"
 
 class Rack::Idempotent
+  DEFAULT_RETRY_LIMIT = 5
 
   autoload :ImmediateRetry, 'rack-idempotent/immediate_retry'
   autoload :ExponentialBackoff, 'rack-idempotent/exponential_backoff'
@@ -11,7 +12,7 @@ class Rack::Idempotent
 
   def initialize(app, options={})
     @app           = app
-    @retry_policy  = options[:retry] || Rack::Idempotent::ImmediateRetry # Rack::Idempotent::ExponentialBackoff
+    @retry_policy  = options[:retry] || Rack::Idempotent::ImmediateRetry
     @rescue_policy = options[:rescue] || Rack::Idempotent::DefaultRescue
   end
 
@@ -19,21 +20,22 @@ class Rack::Idempotent
     request = Rack::Request.new(env)
     response = nil
     exception = nil
-    catch :retry do
+    while true
+      retry_policy.call(request, response, exception) if response || exception
+      response, exception = nil
+
       begin
-        retry_policy.call(request, response, exception) if response || exception
-        response, exception = nil
         status, headers, body = @app.call(env.dup)
-
         response = Rack::Response.new(body, status, headers)
-        throw :retry if rescue_policy.call(response: response, request: request)
-
-        [status, headers, body]
+        next if rescue_policy.call(response: response, request: request)
+        return [status, headers, body]
       rescue => exception
         if rescue_policy.call(exception: exception, request: request)
-          throw :retry
-        else raise
+          request.env["idempotent.requests.exceptions"] ||= []
+          request.env["idempotent.requests.exceptions"] << exception
+          next
         end
+        raise
       end
     end
   end
