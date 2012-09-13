@@ -40,3 +40,12 @@ class TestCall
     [status_code, {"Content-Type" => "text/plain"}, []]
   end
 end
+
+def rack_idempotent(client)
+  while true
+    if client.class == Rack::Idempotent
+      return client
+    end
+    client = client.instance_eval { @app }
+  end
+end

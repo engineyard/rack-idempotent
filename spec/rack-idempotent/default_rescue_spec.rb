@@ -70,6 +70,16 @@ describe Rack::Idempotent do
       end
     end
 
+    it "should not retry HEAD requests" do
+      TestCall.errors = [503]
+      begin
+        client.head("http://example.org/")
+      rescue Rack::Idempotent::HTTPException => e
+        e.status.should == 503
+      end
+      RecordRequests.requests.count.should == 1
+    end
+
     it "should retry if it gets more than one unsuccesful response" do
       TestCall.errors = [503, 504]
       client.get("http://example.org/")
