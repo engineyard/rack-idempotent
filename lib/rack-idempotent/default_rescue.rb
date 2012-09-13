@@ -3,7 +3,7 @@ class Rack::Idempotent::DefaultRescue
   POST_RETRY_HTTP_CODES = [502, 503, 504]
   IDEMPOTENT_ERROR_CLASSES = [Errno::ETIMEDOUT, Errno::ECONNREFUSED, Errno::EHOSTUNREACH]
 
-  def self.call(options={})
+  def call(options={})
     exception = options[:exception]
     status = nil
     method = nil

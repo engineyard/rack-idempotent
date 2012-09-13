@@ -8,7 +8,7 @@ describe Rack::Idempotent do
   let(:client) do
     Rack::Client.new do
       use Rack::Lint
-      use Rack::Idempotent, {:rescue => Rack::Idempotent::DefaultRescue}
+      use Rack::Idempotent, {:rescue => Rack::Idempotent::DefaultRescue.new}
       use Rack::Lint
       use RecordRequests
       run TestCall

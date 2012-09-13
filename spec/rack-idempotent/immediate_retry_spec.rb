@@ -8,7 +8,7 @@ describe Rack::Idempotent do
   let(:client) do
     Rack::Client.new do
       use Rack::Lint
-      use Rack::Idempotent, {:retry => Rack::Idempotent::ImmediateRetry}
+      use Rack::Idempotent, {:retry => Rack::Idempotent::ImmediateRetry.new}
       use Rack::Lint
       use RecordRequests
       run TestCall
@@ -45,7 +45,7 @@ describe Rack::Idempotent do
     end
 
     it "should raise RetryLimitExceeded when the request fails too many times" do
-      retry_limit = Rack::Idempotent::ImmediateRetry.limit
+      retry_limit = Rack::Idempotent::ImmediateRetry.new.max_retries
       TestCall.errors = (retry_limit + 1).times.map {|i| 503}
       lambda {
         client.get("http://example.org/")

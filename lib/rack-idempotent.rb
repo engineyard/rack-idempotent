@@ -19,8 +19,8 @@ class Rack::Idempotent
 
   def initialize(app, options={})
     @app           = app
-    @retry_policy  = options[:retry] || Rack::Idempotent::ImmediateRetry
-    @rescue_policy = options[:rescue] || Rack::Idempotent::DefaultRescue
+    @retry_policy  = options[:retry] || Rack::Idempotent::ImmediateRetry.new
+    @rescue_policy = options[:rescue] || Rack::Idempotent::DefaultRescue.new
   end
 
   def call(env)
