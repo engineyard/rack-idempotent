@@ -32,13 +32,8 @@ describe Rack::Idempotent do
     [200, 201, 301, 302, 400, 401, 403, 404, 500].each do |status|
       it "should not retry GET requests that result in #{status}" do
         TestCall.errors = [status]
-        begin
-          client.get("http://example.org/")
-          status.should < 400
-        rescue Rack::Idempotent::HTTPException => e
-          e.status.should == status
-          e.status.should >= 400
-        end
+        client.get("http://example.org/")
+        status.should == status
         RecordRequests.requests.count.should == 1
       end
     end
@@ -60,11 +55,8 @@ describe Rack::Idempotent do
       it "should not retry POST requests that result in #{status}" do
         TestCall.errors = [status]
         begin
-          client.post("http://example.org/")
-          status.should < 400
-        rescue Rack::Idempotent::HTTPException => e
-          e.status.should == status
-          e.status.should >= 400
+          response = client.post("http://example.org/")
+          response.status.should == status
         end
         RecordRequests.requests.count.should == 1
       end

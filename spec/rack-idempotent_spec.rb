@@ -171,9 +171,7 @@ describe Rack::Idempotent do
 
       it 'does not retry a POST if the status is 408' do
         TestCall.errors = [408]
-        lambda {
-          client.post("http://example.org/")
-        }.should raise_exception Rack::Idempotent::HTTPException
+        client.post("http://example.org/")
 
         RecordRequests.requests.count.should == 1
 

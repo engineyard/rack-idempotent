@@ -9,14 +9,7 @@ class Rack::Idempotent::DefaultRescue
     method = nil
 
     if exception
-      if IDEMPOTENT_ERROR_CLASSES.include?(exception.class)
-        return true
-      elsif exception.class == Rack::Idempotent::HTTPException
-        status = exception.status
-        method = exception.request.env["REQUEST_METHOD"]
-      else
-        return false
-      end
+      return IDEMPOTENT_ERROR_CLASSES.include?(exception.class)
     end
 
     unless status && method

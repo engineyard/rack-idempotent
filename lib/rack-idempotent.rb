@@ -11,7 +11,6 @@ class Rack::Idempotent
   autoload :DefaultRescue, 'rack-idempotent/default_rescue'
 
   # Exceptions
-  autoload :HTTPException, 'rack-idempotent/http_exception'
   autoload :RetryLimitExceeded, 'rack-idempotent/retry_limit_exceeded'
   autoload :Retryable, 'rack-idempotent/retryable'
 
@@ -33,7 +32,6 @@ class Rack::Idempotent
 
       begin
         status, headers, body = @app.call(env.dup)
-        raise HTTPException.new(status, headers, body, request) if status >= 400
         response = Rack::Response.new(body, status, headers)
         next if rescue_policy.call({:response => response, :request => request})
         return [status, headers, body]
