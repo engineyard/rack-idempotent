@@ -49,6 +49,42 @@ client = Rack::Client.new do
 end
 ```
 
+### Configuration
+
+### Exponential Backoff
+
+* Defaults
+  * ```max_retries``` = 5
+  * ```min_retry_interval``` = 0.5 (seconds)
+  * ```max_retry_interval``` = 1800 (seconds)
+
+```ruby
+Rack::Client.new do
+  use Rack::Idempotent, {
+    :retry => Rack::Idempotent::ExponentialBackoff.new(
+      :max_retries        => 50,
+      :min_retry_interval => 1.0,
+      :max_retry_interval => 30,
+    ),
+  }
+  use Rack::Lint
+  run App
+end
+```
+
+### Immediate Retry
+
+```ruby
+Rack::Client.new do
+  use Rack::Idempotent, {
+    :retry => Rack::Idempotent::ImmediateRetry.new(max_retries: 50),
+  }
+  use Rack::Lint
+  run App
+end
+```
+
+
 ## Running Tests
 
     $ bundle exec rake

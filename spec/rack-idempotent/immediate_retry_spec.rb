@@ -15,7 +15,6 @@ describe Rack::Idempotent do
     describe "using Rack::Idempotent::ImmediateRetry with #{name}" do
       let(:client) do
         Rack::Client.new do
-          use Rack::Lint
           use Rack::Idempotent, {
             :retry => Rack::Idempotent::ImmediateRetry.new(opts)
           }
